@@ -445,8 +445,9 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent, settings):
         super().__init__(parent)
         self.title("設定")
-        self.geometry("480x260")
-        self.resizable(False, False)
+        self.geometry("480x420")
+        self.minsize(420, 340)
+        self.resizable(True, True)  # DPI拡大率次第でボタンが隠れないよう手動リサイズ可能にしておく
         self.configure(fg_color=COL_BG)
         self.result = None
 
