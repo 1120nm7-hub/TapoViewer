@@ -1,0 +1,5 @@
+opencv-python>=4.8
+Pillow>=10.0
+customtkinter>=5.2
+sounddevice>=0.4
+imageio-ffmpeg>=0.4

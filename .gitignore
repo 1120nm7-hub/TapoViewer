@@ -1,0 +1,18 @@
+# build artifacts
+build/
+dist/
+*.spec.bak
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# local runtime data (camera IPs / credentials must never be committed)
+cameras.json
+settings.json
+
+# OS
+Thumbs.db
+.DS_Store
