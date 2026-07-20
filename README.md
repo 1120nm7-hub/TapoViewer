@@ -1,5 +1,8 @@
 # TapoViewer
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-ffdd00?logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/1120nm7)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Unofficial Windows viewer for TP-Link Tapo security cameras (RTSP-based, multi-camera live view / recording).**
 
 TapoカメラのRTSPで利用できる機能をすべて詰め込んだWindows 11用ビューアです。フォントはメイリオに統一しています。
@@ -59,6 +62,12 @@ TapoカメラのRTSPで利用できる機能をすべて詰め込んだWindows 1
 - 音が出ない: Windowsの既定の出力デバイスを確認。exe再ビルド後も改善しなければ `pip install sounddevice` を実行してスクリプト版(`python tapo_viewer.py`)で切り分け
 - 録画ファイルが再生できない: 録画は必ず⏹ボタンで停止してください(強制終了するとMP4のインデックスが書き込まれない場合があります)
 - SmartScreen警告: 「詳細情報」→「実行」で起動できます
+
+## サポート
+
+無料・オープンソースで開発しています。広告やテレメトリは入れていないので、便利だと感じたら開発継続のコーヒー代としてサポートいただけると励みになります。
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-ffdd00?logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/1120nm7)
 
 ## ライセンス
 
