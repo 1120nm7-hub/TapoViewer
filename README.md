@@ -46,7 +46,7 @@ TapoカメラのRTSPで利用できる機能をすべて詰め込んだWindows 1
 ## セットアップ(初回のみ)
 
 1. Python 3.10以降をインストール(「Add python.exe to PATH」に必ずチェック)
-2. このフォルダの **`build_exe.bat` をダブルクリック**
+2. フォルダをダウンロードし、フォルダ内の **`build_exe.bat` をダブルクリック**
 3. 完成した **`dist\TapoViewer.exe`** を好きな場所にコピー
 
 以後は exe のダブルクリックだけで起動できます。録画・音声用のffmpegはimageio-ffmpegパッケージ経由でexeに同梱されるため、別途インストール不要です。
