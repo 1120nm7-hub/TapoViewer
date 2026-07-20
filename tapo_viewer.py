@@ -23,7 +23,7 @@ import subprocess
 import threading
 import time
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -35,8 +35,11 @@ from PIL import Image, ImageTk
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "TapoViewer"
 CONFIG_PATH = APP_DIR / "cameras.json"
 SETTINGS_PATH = APP_DIR / "settings.json"
-SNAPSHOT_DIR = Path.home() / "Pictures" / "TapoViewer"
-RECORD_DIR = Path.home() / "Videos" / "TapoViewer"
+DEFAULT_SNAPSHOT_DIR = Path.home() / "Pictures" / "TapoViewer"
+DEFAULT_RECORD_DIR = Path.home() / "Videos" / "TapoViewer"
+
+# カードサイズ(縦並び/グリッド時の1カードの高さ)の倍率プリセット
+CARD_SCALES = {"S": 0.7, "M": 1.0, "L": 1.4}
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -91,7 +94,17 @@ def save_cameras(cameras):
 
 
 def load_settings():
-    return _load_json(SETTINGS_PATH, {"layout": "グリッド", "osd": True})
+    defaults = {
+        "layout": "グリッド",
+        "osd": False,  # Tapo本体のタイムスタンプ表示と重複するためデフォルトOFF
+        "card_scale": "M",
+        "record_dir": str(DEFAULT_RECORD_DIR),
+        "snapshot_dir": str(DEFAULT_SNAPSHOT_DIR),
+    }
+    settings = _load_json(SETTINGS_PATH, defaults)
+    for k, v in defaults.items():
+        settings.setdefault(k, v)
+    return settings
 
 
 def save_settings(settings):
@@ -203,16 +216,17 @@ class CameraStream:
 # 録画(ffmpeg: 映像は無劣化コピー、音声はAAC変換)
 # ----------------------------------------------------------------------
 class Recorder:
-    def __init__(self, cam):
+    def __init__(self, cam, record_dir):
         self.cam = cam
+        self.record_dir = Path(record_dir)
         self.proc = None
         self.path = None
         self.started_at = None
 
     def start(self):
-        RECORD_DIR.mkdir(parents=True, exist_ok=True)
+        self.record_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.path = RECORD_DIR / f"{self.cam['name']}_{ts}.mp4"
+        self.path = self.record_dir / f"{self.cam['name']}_{ts}.mp4"
         cmd = [
             get_ffmpeg(),
             "-loglevel", "error",
@@ -425,6 +439,72 @@ class CameraDialog(ctk.CTkToplevel):
 
 
 # ----------------------------------------------------------------------
+# 設定ダイアログ(保存先など)
+# ----------------------------------------------------------------------
+class SettingsDialog(ctk.CTkToplevel):
+    def __init__(self, parent, settings):
+        super().__init__(parent)
+        self.title("設定")
+        self.geometry("480x260")
+        self.resizable(False, False)
+        self.configure(fg_color=COL_BG)
+        self.result = None
+
+        ctk.CTkLabel(self, text="保存先", font=F(18, "bold")).pack(
+            anchor="w", padx=24, pady=(20, 12)
+        )
+
+        self.record_var = ctk.StringVar(value=settings.get("record_dir", str(DEFAULT_RECORD_DIR)))
+        self.snapshot_var = ctk.StringVar(value=settings.get("snapshot_dir", str(DEFAULT_SNAPSHOT_DIR)))
+
+        self._path_row("録画(動画)の保存先", self.record_var)
+        self._path_row("スナップショットの保存先", self.snapshot_var)
+
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(fill="x", padx=24, pady=(18, 20), side="bottom")
+        ctk.CTkButton(
+            btns, text="キャンセル", fg_color="transparent", border_width=1,
+            text_color=COL_MUTED, hover_color=COL_CARD, width=110, height=38,
+            font=F(13), command=self.destroy,
+        ).pack(side="left")
+        ctk.CTkButton(
+            btns, text="保存", width=110, height=38, font=F(13, "bold"),
+            command=self._ok,
+        ).pack(side="right")
+
+        self.grab_set()
+        self.transient(parent)
+
+    def _path_row(self, label, var):
+        ctk.CTkLabel(self, text=label, font=F(12), text_color=COL_MUTED).pack(
+            anchor="w", padx=24
+        )
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=24, pady=(2, 10))
+        entry = ctk.CTkEntry(row, textvariable=var, height=36, corner_radius=8, font=F(12))
+        entry.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            row, text="参照…", width=70, height=36, corner_radius=8,
+            fg_color=COL_CARD_HEADER, hover_color="#2c313c",
+            text_color="#d7dbe3", font=F(12),
+            command=lambda: self._browse(var),
+        ).pack(side="left", padx=(8, 0))
+
+    def _browse(self, var):
+        initial = var.get() or str(Path.home())
+        chosen = filedialog.askdirectory(parent=self, initialdir=initial)
+        if chosen:
+            var.set(chosen)
+
+    def _ok(self):
+        self.result = {
+            "record_dir": self.record_var.get().strip() or str(DEFAULT_RECORD_DIR),
+            "snapshot_dir": self.snapshot_var.get().strip() or str(DEFAULT_SNAPSHOT_DIR),
+        }
+        self.destroy()
+
+
+# ----------------------------------------------------------------------
 # カメラカード
 # ----------------------------------------------------------------------
 class CameraCard(ctk.CTkFrame):
@@ -547,16 +627,19 @@ class CameraCard(ctk.CTkFrame):
                 interpolation=cv2.INTER_AREA,
             )
 
-        # タイムスタンプOSD
-        if app.settings.get("osd", True):
+        # タイムスタンプOSD(Tapo本体の時刻表示と重ならないよう右下に表示)
+        if app.settings.get("osd", False):
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            fh2 = frame.shape[0]
+            fh2, fw2 = frame.shape[:2]
+            (tw, _th), _ = cv2.getTextSize(ts, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            x = max(10, fw2 - tw - 10)
+            y = fh2 - 12
             cv2.putText(
-                frame, ts, (10, fh2 - 12),
+                frame, ts, (x, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA,
             )
             cv2.putText(
-                frame, ts, (10, fh2 - 12),
+                frame, ts, (x, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA,
             )
 
@@ -621,12 +704,26 @@ class TapoViewerApp(ctk.CTk):
             fg_color="transparent", border_width=1, text_color=COL_MUTED,
             hover_color=COL_CARD, font=F(13), command=self._reconnect_all,
         ).pack(side="right", padx=6)
+        ctk.CTkButton(
+            bar, text="⚙ 設定", height=36, corner_radius=10,
+            fg_color="transparent", border_width=1, text_color=COL_MUTED,
+            hover_color=COL_CARD, font=F(13), command=self.open_settings,
+        ).pack(side="right", padx=6)
 
         # OSDスイッチ
-        self.osd_var = ctk.BooleanVar(value=self.settings.get("osd", True))
+        self.osd_var = ctk.BooleanVar(value=self.settings.get("osd", False))
         ctk.CTkSwitch(
             bar, text="時刻表示", variable=self.osd_var, font=F(12),
             command=self._on_osd_change, width=90,
+        ).pack(side="right", padx=10)
+
+        # カードサイズ切替
+        self.card_scale_var = ctk.StringVar(
+            value=self.settings.get("card_scale", "M")
+        )
+        ctk.CTkSegmentedButton(
+            bar, values=list(CARD_SCALES.keys()), variable=self.card_scale_var,
+            font=F(12), width=110, command=self._on_card_scale_change,
         ).pack(side="right", padx=10)
 
         # レイアウト切替
@@ -646,6 +743,18 @@ class TapoViewerApp(ctk.CTk):
     def _on_osd_change(self):
         self.settings["osd"] = self.osd_var.get()
         save_settings(self.settings)
+
+    def _on_card_scale_change(self, _value=None):
+        self.settings["card_scale"] = self.card_scale_var.get()
+        save_settings(self.settings)
+        self._rebuild_grid()
+
+    def open_settings(self):
+        dlg = SettingsDialog(self, self.settings)
+        self.wait_window(dlg)
+        if dlg.result:
+            self.settings.update(dlg.result)
+            save_settings(self.settings)
 
     def _toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
@@ -690,11 +799,13 @@ class TapoViewerApp(ctk.CTk):
             self.grid_area.columnconfigure(c, weight=1)
 
         # ウィンドウ高さから1カードの高さを決定(スクロール領域内のため明示指定)
+        scale = CARD_SCALES.get(self.settings.get("card_scale", "M"), 1.0)
         win_h = max(self.winfo_height(), 500) - 140
         if layout == "縦並び" and not self.focused and n > 1:
             card_h = max(320, win_h // min(n, 2))  # 2枚分は画面内、以降スクロール
         else:
             card_h = max(280, win_h // rows)
+        card_h = max(200, int(card_h * scale))
 
         for i, cam in enumerate(show):
             r, c = divmod(i, cols)
@@ -842,9 +953,10 @@ class TapoViewerApp(ctk.CTk):
                 270: cv2.ROTATE_90_COUNTERCLOCKWISE,
             }
             frame = cv2.rotate(frame, rot_map[rot])
-        SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        snapshot_dir = Path(self.settings.get("snapshot_dir", str(DEFAULT_SNAPSHOT_DIR)))
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = SNAPSHOT_DIR / f"{name}_{ts}.jpg"
+        path = snapshot_dir / f"{name}_{ts}.jpg"
         cv2.imwrite(str(path), frame)
         messagebox.showinfo("スナップショット", f"保存しました:\n{path}")
 
@@ -855,7 +967,7 @@ class TapoViewerApp(ctk.CTk):
             messagebox.showinfo("録画", f"録画を停止しました:\n{rec.path}")
             return
         cam = next(c for c in self.cameras if c["name"] == name)
-        rec = Recorder(cam)
+        rec = Recorder(cam, self.settings.get("record_dir", str(DEFAULT_RECORD_DIR)))
         try:
             rec.start()
             self.recorders[name] = rec
